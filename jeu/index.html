@@ -1,0 +1,915 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kasane</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Les cartes portent toute la couleur du jeu. L'interface se tient donc en
+     retrait : papier casse, encre, un rouge de sceau employe seulement pour
+     signaler le joueur actif et refuser un coup. */
+  :root {
+    --papier: #f3f1ec;
+    --carte: #eee7d5;
+    --encre: #1c1a16;
+    --faible: #7c786f;
+    --trait: #d6d2c8;
+    --sceau: #b0302b;
+    --ratio: 1.5617;          /* 2102 / 1346, le format bridge */
+    --cw: 96px;               /* largeur de carte, la meme partout, posee par JS */
+    --titre: "Shippori Mincho", "Hiragino Mincho ProN", Georgia, serif;
+    --ui: "IBM Plex Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--papier); color: var(--encre);
+    font: 400 15px/1.5 var(--ui);
+    height: 100dvh; overflow: hidden;
+    display: flex; flex-direction: column;
+    -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent;
+  }
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--encre); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  [hidden] { display: none !important; }
+
+  header {
+    display: flex; align-items: center; gap: 14px; flex: none;
+    padding: 10px 16px; border-bottom: 1px solid var(--trait);
+  }
+  /* le lettrage du titre, detoure, pose directement sur le fond de la page */
+  .marque { margin-right: auto; display: flex; align-items: center; }
+  .marque img { height: 26px; width: auto; display: block; }
+  @media (max-width: 620px) { .marque img { height: 22px; } }
+  .lien {
+    background: none; border: 0; padding: 6px 0; color: var(--encre);
+    font-size: 13px; font-weight: 500; border-bottom: 1px solid var(--encre);
+  }
+  .rond {
+    width: 26px; height: 26px; flex: none; border-radius: 50%;
+    border: 1px solid var(--trait); background: none; color: var(--faible);
+    font-family: var(--titre); font-size: 14px; line-height: 1; padding: 0;
+  }
+  .rond:hover { border-color: var(--encre); color: var(--encre); }
+
+  main {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    max-width: 720px; width: 100%; margin: 0 auto;
+    /* la marge basse tient compte de la barre d'accueil du telephone, que la
+       page passe sous elle a cause de viewport-fit=cover */
+    padding: 12px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  @media (max-width: 620px) {
+    main { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  }
+
+  /* ---------- carte, une seule taille pour tout le jeu ---------- */
+  .carte {
+    width: var(--cw); height: calc(var(--cw) * var(--ratio));
+    border-radius: 5px; background: var(--carte);
+    background-size: cover; background-position: center;
+    border: 2px solid transparent; box-shadow: 0 1px 3px #00000024;
+    flex: none;
+  }
+  .carte.dos { background-image: var(--dos); }
+  .sous {
+    margin-top: 5px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--faible); font-variant-numeric: tabular-nums; text-align: center;
+  }
+
+  /* ---------- rangee du haut : joueurs a gauche, pioche a droite ---------- */
+  .haut { display: flex; align-items: flex-start; gap: 16px; flex: none; }
+  #joueurs { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .jr { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .jr .pastille { width: 7px; height: 7px; border-radius: 50%; background: var(--trait); flex: none; }
+  .jr.actif .pastille { background: var(--sceau); }
+  .jr.actif .nom { font-weight: 600; }
+  .jr .n { color: var(--faible); font-variant-numeric: tabular-nums; }
+  .jr .vue { display: flex; gap: 2px; }
+  .jr .vue i { width: 11px; height: 17px; background-size: cover; border-radius: 1px; }
+  #pioche-zone { flex: none; }
+  #pioche-zone .carte.appel { cursor: pointer; }
+  #pioche-zone .appel + .sous { color: var(--encre); font-weight: 600; }
+
+  /* ---------- cartes en jeu ---------- */
+  #table {
+    flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+    /* le vide se prend en haut : les cartes en jeu descendent vers la main au
+       lieu de flotter au milieu de la zone */
+    gap: 12px; padding: 52px 0 0;
+  }
+  .emplacement { text-align: center; }
+  /* Chaque emplacement est un tas : les cartes deja recouvertes depassent de
+     quelques pixels derriere celle du dessus. */
+  .tas {
+    position: relative; width: var(--cw); height: calc(var(--cw) * var(--ratio));
+  }
+  .tas .carte { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* une carte recouverte recoit l'ombre de celle du dessus : on l'assombrit */
+  .tas .couche {
+    background: #ddd6c6; border: 1px solid #cdc6b6;
+    box-shadow: 0 1px 2px #0000001f;
+  }
+  .carte.jeu { box-shadow: 0 2px 6px #00000030; }
+  /* la carte visee ne se souligne que pendant le glisse */
+  .carte.jeu.survol { border-color: var(--sceau); }
+
+  /* Une seule ligne, vide la plupart du temps : elle ne sert qu'aux refus et
+     aux evenements. La hauteur est reservee pour que rien ne saute. */
+  #etat {
+    flex: none; text-align: center; padding: 2px 0 6px;
+    min-height: 30px; font-size: 13.5px; color: var(--faible);
+  }
+  #etat.refus { color: var(--sceau); }
+
+  /* ---------- main en eventail ---------- */
+  #eventail {
+    flex: none; position: relative;
+    height: calc(var(--cw) * var(--ratio) * 1.72 + 26px);
+    touch-action: none;
+  }
+  #eventail .carte {
+    position: absolute; bottom: 0; transform-origin: 50% 88%;
+    transition: transform .12s, bottom .12s;
+    /* l'ombre part vers la gauche, du cote ou la carte en recouvre une autre */
+    box-shadow: -4px 3px 7px #00000026;
+  }
+  #eventail .carte.jouable { cursor: grab; }
+  #eventail .carte.signalee { border-color: var(--encre); }
+  /* la desaturation et l'assombrissement sont poses par disposerEventail :
+     une carte recouverte est plus sombre que celle qui la recouvre */
+  #eventail .carte.levee { z-index: 90 !important; }
+  #fantome {
+    position: fixed; z-index: 300; pointer-events: none; opacity: .94;
+    box-shadow: 0 8px 22px #0000003d; transform: translate(-50%, -50%);
+  }
+
+  /* ---------- panneau de reglages ---------- */
+  #voile { position: fixed; inset: 0; background: #1c1a1659; z-index: 400; }
+  #panneau, .feuille {
+    position: fixed; z-index: 401; background: var(--papier);
+    inset: auto 0 0 0; max-height: 90vh; overflow-y: auto;
+    border-top: 1px solid var(--trait); padding: 20px 18px 28px;
+  }
+  @media (min-width: 560px) {
+    #panneau, .feuille {
+      inset: 50% auto auto 50%; transform: translate(-50%, -50%);
+      width: 440px; border: 1px solid var(--trait); border-radius: 8px; max-height: 86vh;
+    }
+  }
+  #panneau h2, .feuille h2 { margin: 0 0 18px; font-size: 15px; font-weight: 600; }
+  #texte-regles h3 {
+    margin: 16px 0 4px; font-size: 10px; font-weight: 600; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--faible);
+  }
+  #texte-regles h3:first-child { margin-top: 0; }
+  #texte-regles p { margin: 0; font-size: 14px; }
+  .feuille footer { display: flex; margin-top: 22px; }
+  .champ { margin-bottom: 16px; }
+  .champ > .nom, summary {
+    display: block; font-size: 10px; font-weight: 600; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--faible); margin-bottom: 6px;
+  }
+  .champ .aide { margin: 6px 0 0; font-size: 12px; color: var(--faible); }
+  .segment { display: flex; border: 1px solid var(--trait); border-radius: 5px; overflow: hidden; }
+  .segment button {
+    flex: 1; background: var(--papier); color: var(--faible); border: 0; padding: 8px 6px; font-size: 13px;
+  }
+  .segment button + button { border-left: 1px solid var(--trait); }
+  .segment button[aria-pressed="true"] { background: var(--encre); color: var(--papier); font-weight: 600; }
+  .bascule { display: flex; align-items: center; gap: 9px; font-size: 14px; padding: 5px 0; cursor: pointer; }
+  details { border-top: 1px solid var(--trait); padding-top: 12px; margin-top: 6px; }
+  summary { cursor: pointer; margin: 0; }
+  #lignes { margin: 10px 0 0; padding: 0; list-style: none; font-size: 13px; max-height: 30vh; overflow-y: auto; }
+  #lignes li { padding: 5px 0; border-bottom: 1px solid var(--trait); color: var(--faible); }
+  #lignes li b { color: var(--encre); font-weight: 600; }
+  #lignes li.tour { color: #a09b91; font-size: 11px; }
+  #panneau footer { display: flex; gap: 10px; margin-top: 20px; }
+  .plein {
+    flex: 1; background: var(--encre); color: var(--papier); border: 1px solid var(--encre);
+    border-radius: 5px; padding: 10px; font-weight: 600;
+  }
+  .vide {
+    flex: 1; background: none; color: var(--encre); border: 1px solid var(--trait);
+    border-radius: 5px; padding: 10px;
+  }
+
+  #fin { position: fixed; inset: 0; background: #f3f1ecf2; display: grid; place-items: center; z-index: 500; }
+  #fin > div { text-align: center; padding: 24px; }
+  #fin h2 { margin: 0 0 6px; font-family: var(--titre); font-size: 26px; font-weight: 600; }
+  #fin p { margin: 0 0 22px; color: var(--faible); font-size: 14px; }
+  #fin button { min-width: 180px; }
+</style>
+
+<header>
+  <div class="marque"><img src="img/logo.png" alt="Kasane"></div>
+  <button class="rond" id="aide" aria-label="Règles du jeu">i</button>
+  <button class="lien" id="ouvrir">Réglages</button>
+</header>
+
+<main>
+  <div class="haut">
+    <div id="joueurs"></div>
+    <div id="pioche-zone">
+      <div class="tas" id="tas-pioche"></div>
+      <div class="sous" id="pioche-sous">Pioche</div>
+    </div>
+  </div>
+
+  <div id="table"></div>
+
+  <div id="etat"></div>
+
+  <div id="eventail"></div>
+</main>
+
+<div id="voile" hidden></div>
+<div id="regles" class="feuille" hidden role="dialog" aria-modal="true" aria-label="Règles">
+  <h2>Règles</h2>
+  <div id="texte-regles"></div>
+  <footer><button class="vide" id="fermer-regles">Fermer</button></footer>
+</div>
+<div id="panneau" hidden role="dialog" aria-modal="true" aria-label="Réglages">
+  <h2>Réglages</h2>
+  <div class="champ"><span class="nom">Joueurs</span><div class="segment" id="seg-joueurs"></div></div>
+  <div class="champ"><span class="nom">Cartes en jeu</span><div class="segment" id="seg-piles"></div>
+    <p class="aide">Le nombre de cartes que l'on peut recouvrir. Plus il est élevé, moins on reste bloqué.</p></div>
+  <div class="champ"><span class="nom">Jokers</span><div class="segment" id="seg-jokers"></div></div>
+  <div class="champ" id="champ-joker"><span class="nom">Règle du joker</span>
+    <div class="segment" id="seg-joker">
+      <button data-j="impose">Impose</button>
+      <button data-j="modifie">Modifie</button>
+      <button data-j="partout">Partout</button>
+    </div>
+    <p class="aide" id="aide-joker"></p></div>
+  <div class="champ"><span class="nom">Cartes piochées</span><div class="segment" id="seg-pioche"></div></div>
+  <div class="champ"><span class="nom">Visuel des cartes</span><div class="segment" id="seg-version"></div></div>
+  <div class="champ">
+    <label class="bascule"><input type="checkbox" id="indices"> Indiquer les cartes posables</label>
+    <label class="bascule"><input type="checkbox" id="voir-mains"> Voir le jeu des adversaires</label>
+    <label class="bascule"><input type="checkbox" id="auto-ia" checked> Adversaires automatiques</label>
+  </div>
+  <details><summary>Journal</summary><ul id="lignes"></ul></details>
+  <footer>
+    <button class="plein" id="relancer">Nouvelle partie</button>
+    <button class="vide" id="fermer">Fermer</button>
+  </footer>
+</div>
+
+<div id="fin" hidden><div>
+  <h2 id="fin-titre"></h2>
+  <p id="fin-texte"></p>
+  <button class="plein" id="rejouer">Rejouer</button>
+</div></div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ *
+ * Regles
+ *
+ * Les 64 combinaisons de chiffre, couleur et forme, plus zero, une ou deux
+ * series de 12 jokers. Neuf cartes par joueur. Le premier a vider sa main
+ * gagne.
+ *
+ * On pose une carte sur une carte en jeu si elles partagent au moins deux
+ * caracteristiques sur trois. La carte posee recouvre celle qu'elle egale.
+ * Faute de pouvoir poser, on pioche ; si la carte piochee convient on la
+ * pose, sinon le tour passe.
+ *
+ * CARTES EN JEU. Avec une seule carte en jeu, 9 cartes sur 63 s'y accrochent,
+ * soit 14 pour cent, et 42 pour cent des tours d'une partie a deux finissent
+ * par un passage. Deux cartes ramenent ce chiffre a 31 pour cent, trois a 21.
+ *
+ * JOKER. Il ne porte qu'une caracteristique, celle qui est dessinee.
+ *  - Impose : il se pose sur une carte qui la porte, et le joueur suivant doit
+ *    a son tour la porter.
+ *  - Modifie : il recopie la carte qu'il couvre en y changeant sa seule
+ *    caracteristique. Il partage donc toujours deux caracteristiques sur trois,
+ *    et le suivant retrouve une carte normale.
+ *  - Partout : il se pose sur n'importe quoi. Le plus fluide, le moins tendu.
+ * ------------------------------------------------------------------ */
+
+const CHIFFRES = ["1", "2", "3", "4"];
+const COULEURS = ["rouge", "bleu", "jaune", "vert"];
+const FORMES = ["cercle", "triangle", "carre", "croix"];
+const GENRE_CLE = { chiffre: "n", couleur: "c", forme: "s" };
+const VALEURS = { n: CHIFFRES, c: COULEURS, s: FORMES };
+const ARTICLE = { chiffre: "le chiffre", couleur: "la couleur", forme: "la forme" };
+const AIDE_JOKER = {
+  impose: "Se pose sur une carte qui porte sa caractéristique. Le joueur suivant doit la porter aussi.",
+  modifie: "Recouvre une carte en n'y changeant que sa propre caractéristique. Le suivant retrouve une carte normale.",
+  partout: "Se pose sur n'importe quelle carte.",
+};
+const NOMS_IA = ["Kenji", "Aiko", "Ryo", "Mina", "Taro"];
+const MAIN_DEPART = 9;
+const RATIO = 1.5617;
+
+// Partie standard au lancement : trois joueurs, deux cartes en jeu, douze
+// jokers, et c'est au joueur de reperer ses coups.
+const reglages = {
+  joueurs: 3, piles: 2, jokers: 12, joker: "impose", pioche: 1,
+  version: "v4", indices: false, voirMains: false, autoIa: true,
+};
+let P = null;
+let choix = null;       // index de la carte de main choisie au doigt
+
+/* ---------- cartes ---------- */
+
+function construireJeu() {
+  const d = [];
+  let k = 0;
+  for (const n of CHIFFRES)
+    for (const c of COULEURS)
+      for (const s of FORMES) d.push({ type: "n", n, c, s, id: "c" + k++ });
+  for (let copie = 0; copie < reglages.jokers / 12; copie++)
+    for (const genre of ["chiffre", "couleur", "forme"])
+      for (const val of VALEURS[GENRE_CLE[genre]])
+        d.push({ type: "j", genre, val, id: "j" + k++ });
+  return d;
+}
+
+function melanger(t) {
+  for (let i = t.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [t[i], t[j]] = [t[j], t[i]];
+  }
+  return t;
+}
+
+function image(carte) {
+  // chaque serie a ses jokers, assortis a ses coins tete-beche
+  const dossierJoker = `jokers-${reglages.version}`;
+  return carte.type === "n"
+    ? `img/${reglages.version}/carte-${carte.n}-${carte.c}-${carte.s}.jpg`
+    : `img/${dossierJoker}/joker-${carte.genre}-${carte.val}.jpg`;
+}
+
+function nomCarte(c) {
+  return c.type === "n" ? `${c.n} ${c.c} ${c.s}` : `joker de ${c.genre} ${c.val}`;
+}
+
+function conj(joueur, adversaire, vous) {
+  return joueur.ia ? adversaire : vous;
+}
+
+/* ---------- regle de pose ---------- */
+
+function communes(a, b) {
+  return (a.n === b.n) + (a.c === b.c) + (a.s === b.s);
+}
+
+function posable(carte, haut) {
+  if (carte.type === "j") {
+    if (reglages.joker !== "impose") return true;
+    return haut.type === "j"
+      ? haut.genre === carte.genre && haut.val === carte.val
+      : haut[GENRE_CLE[carte.genre]] === carte.val;
+  }
+  if (haut.type === "j") return carte[GENRE_CLE[haut.genre]] === haut.val;
+  return communes(carte, haut) >= 2;
+}
+
+/** Ce que devient la pile apres la pose. En mode « modifie », le joker prend la
+ *  place de la carte couverte en n'y changeant que sa propre caracteristique. */
+function resultat(carte, haut) {
+  if (carte.type !== "j" || reglages.joker !== "modifie" || haut.type === "j") return carte;
+  const t = { type: "n", n: haut.n, c: haut.c, s: haut.s, id: carte.id };
+  t[GENRE_CLE[carte.genre]] = carte.val;
+  return t;
+}
+
+function cibles(carte) {
+  return P.ouvertes.map((h, i) => i).filter(i => posable(carte, P.ouvertes[i]));
+}
+
+function raisonBlocage(carte) {
+  if (carte.type === "j" && reglages.joker === "impose")
+    return `aucune carte en jeu ne porte ${ARTICLE[carte.genre]} ${carte.val}`;
+  return "moins de deux caractéristiques communes";
+}
+
+/* ---------- partie ---------- */
+
+function nouvellePartie() {
+  const deck = melanger(construireJeu());
+  const joueurs = [{ nom: "Vous", ia: false, main: [] }];
+  for (let i = 1; i < reglages.joueurs; i++)
+    joueurs.push({ nom: NOMS_IA[i - 1], ia: true, main: [] });
+  for (let t = 0; t < MAIN_DEPART; t++)
+    for (const j of joueurs) j.main.push(deck.pop());
+
+  // les cartes de depart sont des cartes normales : un joker n'a pas de
+  // caracteristiques completes a egaler
+  const ouvertes = [];
+  while (ouvertes.length < reglages.piles) {
+    let c = deck.pop();
+    while (c.type !== "n") {
+      deck.splice(Math.floor(Math.random() * deck.length), 0, c);
+      c = deck.pop();
+    }
+    ouvertes.push(c);
+  }
+
+  P = { deck, joueurs, ouvertes, rebut: [], profondeur: ouvertes.map(() => 0),
+        tour: 0, aPioche: false, fini: false };
+  choix = null;
+  document.getElementById("lignes").innerHTML = "";
+  const compo = reglages.jokers
+    ? `${64 + reglages.jokers} cartes dont ${reglages.jokers} jokers`
+    : "64 cartes, sans joker";
+  noter("tour", `${reglages.joueurs} joueurs, ${compo}, ${reglages.piles} en jeu`);
+  dessiner();
+  if (joueurCourant().ia) programmerIa();
+}
+
+const joueurCourant = () => P.joueurs[P.tour];
+
+function rechargerPioche() {
+  if (P.deck.length || !P.rebut.length) return;
+  P.deck = melanger(P.rebut);
+  P.rebut = [];
+  noter("", "Pioche vide, les cartes recouvertes sont remélangées.");
+}
+
+function poser(joueur, index, pile) {
+  const carte = joueur.main.splice(index, 1)[0];
+  const couverte = P.ouvertes[pile];
+  const devient = resultat(carte, couverte);
+  P.rebut.push(couverte);
+  P.ouvertes[pile] = devient;
+  P.profondeur[pile]++;
+  const effet = devient !== carte ? `, qui devient ${nomCarte(devient)}` : "";
+  noter("", `<b>${joueur.nom}</b> ${conj(joueur, "pose", "posez")} ${nomCarte(carte)} ` +
+            `sur ${nomCarte(couverte)}${effet}`);
+  if (!joueur.main.length) return terminer(joueur);
+  tourSuivant();
+}
+
+function piocher(joueur) {
+  const tirees = [];
+  let ok = false;
+  while (tirees.length < reglages.pioche && !ok) {
+    rechargerPioche();
+    if (!P.deck.length) break;
+    const carte = P.deck.pop();
+    joueur.main.push(carte);
+    tirees.push(carte);
+    ok = cibles(carte).length > 0;
+  }
+  if (!tirees.length) {
+    noter("", `<b>${joueur.nom}</b> ${conj(joueur, "ne peut", "ne pouvez")} pas piocher, tour passé`);
+    tourSuivant();
+    return null;
+  }
+  P.aPioche = true;
+  const quoi = joueur.ia && !reglages.voirMains
+    ? (tirees.length > 1 ? ` ${tirees.length} cartes` : "")
+    : ` ${tirees.map(nomCarte).join(", ")}`;
+  noter("", `<b>${joueur.nom}</b> ${conj(joueur, "pioche", "piochez")}${quoi}` +
+            (ok ? "" : conj(joueur, " et ne peut rien poser", " et ne pouvez rien poser")));
+  return { tirees, ok };
+}
+
+function passer(joueur) {
+  noter("", `<b>${joueur.nom}</b> ${conj(joueur, "passe son tour", "passez votre tour")}`);
+  tourSuivant();
+}
+
+function tourSuivant() {
+  if (P.fini) return;
+  choix = null;
+  P.aPioche = false;
+  P.tour = (P.tour + 1) % P.joueurs.length;
+  dessiner();
+  if (joueurCourant().ia) programmerIa();
+}
+
+function terminer(gagnant) {
+  P.fini = true;
+  noter("tour", `${gagnant.nom} ${conj(gagnant, "a", "avez")} posé sa dernière carte`);
+  dessiner();
+  document.getElementById("fin-titre").textContent =
+    gagnant.ia ? `${gagnant.nom} gagne` : "Vous gagnez";
+  document.getElementById("fin-texte").textContent = "Cartes restantes : " +
+    P.joueurs.filter(j => j !== gagnant).map(j => `${j.nom} ${j.main.length}`).join(", ");
+  document.getElementById("fin").hidden = false;
+}
+
+/* ---------- adversaire ---------- */
+
+function programmerIa() {
+  if (!reglages.autoIa) { dessiner(); return; }
+  setTimeout(() => { if (!P.fini && joueurCourant().ia) jouerIa(); }, 600);
+}
+
+/** Un joker n'est joue que si aucune carte normale ne passe : il debloque des
+ *  situations, autant le garder. A egalite, on prend le coup qui laisse le plus
+ *  de cartes jouables dans la main. */
+function meilleurCoup(joueur) {
+  const normalesPossibles = joueur.main.some(c => c.type === "n" && cibles(c).length);
+  let best = null;
+  joueur.main.forEach((carte, i) => {
+    if (carte.type === "j" && normalesPossibles) return;
+    for (const p of cibles(carte)) {
+      const apres = P.ouvertes.map((h, k) => k === p ? resultat(carte, h) : h);
+      const score = joueur.main.filter((c, k) =>
+        k !== i && apres.some(h => posable(c, h))).length;
+      if (!best || score > best.score) best = { score, index: i, pile: p };
+    }
+  });
+  return best;
+}
+
+function jouerIa() {
+  const j = joueurCourant();
+  const coup = meilleurCoup(j);
+  if (coup) return poser(j, coup.index, coup.pile);
+  if (!piocher(j)) return;
+  dessiner();
+  setTimeout(() => {
+    if (P.fini) return;
+    const suite = meilleurCoup(j);
+    if (suite) poser(j, suite.index, suite.pile);
+    else passer(j);
+  }, 500);
+}
+
+/* ---------- taille des cartes ---------- */
+
+/** Une seule taille pour toutes les cartes du jeu. Elle est calculee pour que
+ *  la rangee du haut, les cartes en jeu et l'eventail tiennent ensemble sur
+ *  l'ecran, sans defilement. */
+function calerTaille() {
+  const zone = document.querySelector("main");
+  const L = zone.clientWidth - 28;
+  const H = window.innerHeight;
+  const enJeu = P ? P.ouvertes.length : 3;
+  const parLargeur = (L - 12 * (enJeu - 1)) / enJeu;      // la rangee en jeu
+  // l'en-tete, la rangee du haut, les cartes en jeu, puis l'eventail qui
+  // occupe une hauteur et demie de carte
+  const parHauteur = (H - 150) / (3.72 * RATIO);
+  const cw = Math.max(56, Math.min(104, Math.floor(Math.min(parLargeur, parHauteur))));
+  document.documentElement.style.setProperty("--cw", cw + "px");
+  return cw;
+}
+
+/* ---------- rendu ---------- */
+
+function dessiner() {
+  const moi = P.joueurs[0];
+  const courant = joueurCourant();
+  const monTour = courant === moi && !P.fini;
+  const possibles = moi.main.map(c => cibles(c));
+  const peutJouer = possibles.some(t => t.length);
+  calerTaille();
+
+  // joueurs, en haut a gauche
+  const jz = document.getElementById("joueurs");
+  jz.innerHTML = "";
+  P.joueurs.forEach(j => {
+    const el = document.createElement("div");
+    el.className = "jr" + (j === courant ? " actif" : "");
+    const vue = j.ia && reglages.voirMains
+      ? `<span class="vue">${j.main.map(c =>
+          `<i style="background-image:url('${image(c)}')" title="${nomCarte(c)}"></i>`).join("")}</span>`
+      : "";
+    el.innerHTML = `<span class="pastille"></span><span class="nom">${j.nom}</span>
+      <span class="n">${j.main.length}</span>${vue}`;
+    jz.appendChild(el);
+  });
+
+  // pioche, en haut a droite, avec une epaisseur qui suit ce qui reste
+  const appel = monTour && !P.aPioche && (!reglages.indices || !peutJouer);
+  const tasPioche = document.getElementById("tas-pioche");
+  tasPioche.innerHTML = "";
+  empiler(tasPioche, P.deck.length ? Math.min(4, Math.ceil(P.deck.length / 10)) : 0);
+  const pioche = document.createElement("div");
+  pioche.className = "carte dos" + (appel ? " appel" : "");
+  pioche.id = "pioche";
+  pioche.onclick = appel ? tirer : null;
+  tasPioche.appendChild(pioche);
+  document.getElementById("pioche-sous").textContent = `Pioche ${P.deck.length}`;
+
+  // cartes en jeu, au centre
+  const table = document.getElementById("table");
+  table.innerHTML = "";
+  P.ouvertes.forEach((h, i) => {
+    const bloc = document.createElement("div");
+    bloc.className = "emplacement";
+    const tas = document.createElement("div");
+    tas.className = "tas";
+    empiler(tas, Math.min(P.profondeur[i], 4));
+    const el = document.createElement("div");
+    el.className = "carte jeu";
+    el.dataset.pile = i;
+    el.style.backgroundImage = `url('${image(h)}')`;
+    el.title = nomCarte(h);
+    el.onclick = () => { if (choix !== null) deposer(choix, i); };
+    tas.appendChild(el);
+    bloc.appendChild(tas);
+    const lab = document.createElement("div");
+    lab.className = "sous";
+    lab.textContent = P.ouvertes.length > 1 ? `En jeu ${i + 1}` : "En jeu";
+    bloc.appendChild(lab);
+    table.appendChild(bloc);
+  });
+
+  message(P.fini ? "Partie terminée." : "");
+
+  // main en eventail
+  const zone = document.getElementById("eventail");
+  zone.innerHTML = "";
+  moi.main.forEach((c, i) => {
+    const el = document.createElement("div");
+    const ok = reglages.indices ? possibles[i].length && monTour : monTour;
+    el.className = "carte" + (ok ? " jouable" : "") +
+                   (ok && reglages.indices ? " signalee" : "") +
+                   (reglages.indices && !possibles[i].length ? " morte" : "") +
+                   (choix === i ? " levee" : "");
+    el.style.backgroundImage = `url('${image(c)}')`;
+    el.title = nomCarte(c) +
+      (reglages.indices && !possibles[i].length ? ` — ${raisonBlocage(c)}` : "");
+    el.dataset.index = i;
+    if (ok) el.addEventListener("pointerdown", commencerGlisse);
+    zone.appendChild(el);
+  });
+  disposerEventail();
+}
+
+/** Depose sous la carte du dessus les epaisseurs qui suggerent un paquet. */
+function empiler(tas, couches) {
+  for (let k = couches; k >= 1; k--) {
+    const c = document.createElement("div");
+    c.className = "carte couche";
+    const sens = k % 2 ? 1 : -1;
+    c.style.transform = `translate(${sens * k * 1.6}px, ${-k * 1.4}px) ` +
+                        `rotate(${-sens * k * 0.7}deg)`;
+    tas.appendChild(c);
+  }
+}
+
+
+function message(texte, refus) {
+  const el = document.getElementById("etat");
+  el.textContent = texte || "";
+  el.classList.toggle("refus", !!refus);
+}
+
+/** La main se range sur deux rangees legerement en eventail. Deux rangees
+ *  plutot qu'une seule parce que neuf cartes sur la largeur d'un telephone ne
+ *  laissaient voir qu'une bande de 30 px par carte. */
+function disposerEventail() {
+  const zone = document.getElementById("eventail");
+  const cartes = [...zone.children];
+  if (!cartes.length) return;
+  const cw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cw"));
+  const ch = cw * RATIO;
+  // en dessous de cinq cartes, une seule rangee suffit et se lit mieux
+  const deuxRangees = cartes.length >= 5;
+  const coupe = Math.ceil(cartes.length / 2);
+  const rangees = deuxRangees ? [cartes.slice(0, coupe), cartes.slice(coupe)] : [cartes];
+  const decalage = ch * 0.72;         // la rangee du bas recouvre celle du haut
+
+  rangees.forEach((rangee, r) => {
+    const m = rangee.length;
+    if (!m) return;
+    const angleMax = Math.min(11, 3 * (m - 1));
+    // une carte inclinee deborde de sa boite : on reserve ce debord aux bouts
+    const debord = (ch / 2) * Math.sin(angleMax * Math.PI / 180);
+    const L = zone.clientWidth - 2 * debord;
+    const pas = m > 1 ? Math.min(cw * 0.94, (L - cw) / (m - 1)) : 0;
+    const x0 = debord + (L - (cw + pas * (m - 1))) / 2;
+    rangee.forEach((el, i) => {
+      const t = m > 1 ? (i - (m - 1) / 2) / ((m - 1) / 2) : 0;   // -1 a 1
+      el.style.left = (x0 + i * pas) + "px";
+      // a une seule rangee, on se pose a mi-chemin des deux rangees : la main
+      // reste a la meme hauteur qu'avant au lieu de tomber d'un cran
+      const haut = deuxRangees ? (r === 0 ? decalage : 0) : decalage / 2;
+      el.style.bottom = (haut + 8 - Math.abs(t) * ch * 0.04) + "px";
+      el.style.transform = `rotate(${(t * angleMax).toFixed(2)}deg)`;
+      el.style.zIndex = r * 50 + i + 1;
+      // plus une carte est enfouie, plus elle est dans l'ombre de ses voisines
+      const enfoui = (m - 1 - i) + (deuxRangees && r === 0 ? 2 : 0);
+      let lum = 1 - Math.min(enfoui, 7) * 0.018;
+      const eteinte = el.classList.contains("morte");
+      if (eteinte) lum *= 0.95;
+      el.style.filter = (eteinte ? "grayscale(1) " : "") + `brightness(${lum.toFixed(3)})`;
+    });
+  });
+}
+
+/* ---------- glisser-deposer ---------- */
+
+let glisse = null;
+
+function commencerGlisse(e) {
+  if (P.fini || joueurCourant() !== P.joueurs[0]) return;
+  const el = e.currentTarget;
+  glisse = {
+    index: +el.dataset.index, el, x0: e.clientX, y0: e.clientY,
+    actif: false, fantome: null, pointerId: e.pointerId,
+  };
+  el.setPointerCapture(e.pointerId);
+  el.addEventListener("pointermove", bougerGlisse);
+  el.addEventListener("pointerup", finirGlisse);
+  el.addEventListener("pointercancel", finirGlisse);
+  e.preventDefault();
+}
+
+function bougerGlisse(e) {
+  if (!glisse) return;
+  const dx = e.clientX - glisse.x0, dy = e.clientY - glisse.y0;
+  if (!glisse.actif && Math.hypot(dx, dy) < 7) return;
+  if (!glisse.actif) {
+    glisse.actif = true;
+    const f = glisse.el.cloneNode();
+    f.id = "fantome";
+    f.className = "carte";
+    f.style.transform = "translate(-50%, -50%)";
+    f.style.left = f.style.bottom = "auto";
+    document.body.appendChild(f);
+    glisse.fantome = f;
+    glisse.el.style.opacity = ".3";
+    marquerCibles(true);
+  }
+  glisse.fantome.style.left = e.clientX + "px";
+  glisse.fantome.style.top = e.clientY + "px";
+  const pile = pileSous(e.clientX, e.clientY);
+  document.querySelectorAll(".carte.jeu").forEach((c, i) =>
+    c.classList.toggle("survol", pile === i));
+}
+
+function finirGlisse(e) {
+  if (!glisse) return;
+  const { index, el, actif, fantome } = glisse;
+  el.removeEventListener("pointermove", bougerGlisse);
+  el.removeEventListener("pointerup", finirGlisse);
+  el.removeEventListener("pointercancel", finirGlisse);
+  if (fantome) fantome.remove();
+  el.style.opacity = "";
+  marquerCibles(false);
+  const pile = actif ? pileSous(e.clientX, e.clientY) : null;
+  glisse = null;
+  if (!actif) { choisir(index); return; }         // simple appui : on selectionne
+  if (pile !== null) deposer(index, pile);
+  else dessiner();
+}
+
+function pileSous(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const jeu = el && el.closest(".carte.jeu");
+  return jeu ? +jeu.dataset.pile : null;
+}
+
+function marquerCibles(actif) {
+  const carte = glisse && P.joueurs[0].main[glisse.index];
+  document.querySelectorAll(".carte.jeu").forEach((c, i) => {
+    c.classList.toggle("possible", actif && carte && posable(carte, P.ouvertes[i]));
+    if (!actif) c.classList.remove("survol");
+  });
+}
+
+/** Appui simple : on leve la carte, le prochain appui sur une carte en jeu la
+ *  pose. C'est la solution de repli du glisser-deposer. */
+function choisir(index) {
+  choix = choix === index ? null : index;
+  dessiner();
+}
+
+function deposer(index, pile) {
+  const moi = P.joueurs[0];
+  const carte = moi.main[index];
+  if (!carte) return;
+  if (!posable(carte, P.ouvertes[pile])) {
+    choix = null;
+    dessiner();
+    message(`${nomCarte(carte)} ne va pas sur ${nomCarte(P.ouvertes[pile])} : ${raisonBlocage(carte)}.`, true);
+    return;
+  }
+  choix = null;
+  poser(moi, index, pile);
+}
+
+/** On pioche, et si rien ne se pose le tour passe de lui-meme. */
+function tirer() {
+  const moi = P.joueurs[0];
+  const rate = !reglages.indices && moi.main.some(c => cibles(c).length);
+  const tir = piocher(moi);
+  if (!tir) return;
+  if (rate) noter("", "Vous aviez pourtant une carte posable.");
+  dessiner();
+  if (!tir.ok) {
+    message("Rien à poser, le tour passe.");
+    setTimeout(() => { if (!P.fini && joueurCourant() === moi) passer(moi); }, 1100);
+  }
+}
+
+function noter(classe, html) {
+  const li = document.createElement("li");
+  li.className = classe;
+  li.innerHTML = html;
+  const ul = document.getElementById("lignes");
+  ul.insertBefore(li, ul.firstChild);
+}
+
+/* ---------- reglages ---------- */
+
+function segment(id, valeurs, cle, relance, etiquettes) {
+  const hote = document.getElementById(id);
+  for (const v of valeurs) {
+    const b = document.createElement("button");
+    b.textContent = etiquettes ? etiquettes[v] : v;
+    b.onclick = () => {
+      reglages[cle] = v;
+      relance ? nouvellePartie() : dessiner();
+      majPanneau();
+    };
+    hote.appendChild(b);
+  }
+}
+segment("seg-joueurs", [2, 3, 4, 5, 6], "joueurs", true);
+segment("seg-piles", [1, 2, 3], "piles", true);
+segment("seg-jokers", [0, 12, 24], "jokers", true, { 0: "Aucun", 12: "12", 24: "24" });
+segment("seg-pioche", [1, 2], "pioche", false);
+segment("seg-version", ["v3", "v4"], "version", false, { v3: "V3", v4: "V4" });
+
+const segJoker = document.getElementById("seg-joker");
+[...segJoker.children].forEach(b => {
+  b.onclick = () => { reglages.joker = b.dataset.j; nouvellePartie(); majPanneau(); };
+});
+
+function majPanneau() {
+  const cocher = (id, valeurs, cle) =>
+    [...document.getElementById(id).children].forEach((b, i) =>
+      b.setAttribute("aria-pressed", valeurs[i] === reglages[cle]));
+  cocher("seg-joueurs", [2, 3, 4, 5, 6], "joueurs");
+  cocher("seg-piles", [1, 2, 3], "piles");
+  cocher("seg-jokers", [0, 12, 24], "jokers");
+  cocher("seg-pioche", [1, 2], "pioche");
+  cocher("seg-version", ["v3", "v4"], "version");
+  [...segJoker.children].forEach(b =>
+    b.setAttribute("aria-pressed", b.dataset.j === reglages.joker));
+  document.getElementById("champ-joker").hidden = !reglages.jokers;
+  document.getElementById("aide-joker").textContent = AIDE_JOKER[reglages.joker];
+}
+
+function ouvrirPanneau(ouvert) {
+  document.getElementById("voile").hidden = !ouvert;
+  document.getElementById("panneau").hidden = !ouvert;
+  if (ouvert) majPanneau();
+}
+function ouvrirRegles(ouvert) {
+  document.getElementById("voile").hidden = !ouvert;
+  document.getElementById("regles").hidden = !ouvert;
+  if (ouvert) majRegles();
+}
+
+/** Le texte suit les reglages en cours : inutile d'expliquer le joker quand il
+ *  n'y en a pas dans le jeu. */
+function majRegles() {
+  const j = reglages.jokers;
+  const bloc = [
+    ["But", "Se débarrasser de ses neuf cartes avant les autres."],
+    ["Le jeu", `Les 64 combinaisons d'un chiffre de 1 à 4, d'une couleur et d'une forme` +
+      (j ? `, plus ${j} jokers, soit ${64 + j} cartes.` : ", sans joker, soit 64 cartes.")],
+    ["Poser", `Glissez une carte de votre main sur l'une des ${reglages.piles} ` +
+      `carte${reglages.piles > 1 ? "s" : ""} en jeu. Les deux doivent partager au moins ` +
+      `deux caractéristiques sur trois. Votre carte recouvre alors la sienne.`],
+  ];
+  if (j) bloc.push(["Joker", `Un joker ne porte qu'une caractéristique. ${AIDE_JOKER[reglages.joker]}`]);
+  bloc.push(["Bloqué", `Si rien ne se pose, piochez ${reglages.pioche} carte` +
+    `${reglages.pioche > 1 ? "s" : ""}. Si elle convient, posez-la, sinon le tour passe.`]);
+  document.getElementById("texte-regles").innerHTML =
+    bloc.map(([t, c]) => `<h3>${t}</h3><p>${c}</p>`).join("");
+}
+
+document.getElementById("aide").onclick = () => ouvrirRegles(true);
+document.getElementById("fermer-regles").onclick = () => ouvrirRegles(false);
+document.getElementById("ouvrir").onclick = () => ouvrirPanneau(true);
+document.getElementById("fermer").onclick = () => ouvrirPanneau(false);
+document.getElementById("voile").onclick = () => { ouvrirPanneau(false); ouvrirRegles(false); };
+document.getElementById("relancer").onclick = () => { ouvrirPanneau(false); nouvellePartie(); };
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { ouvrirPanneau(false); ouvrirRegles(false); }
+});
+
+document.getElementById("indices").onchange = e => {
+  reglages.indices = e.target.checked; choix = null; dessiner();
+};
+document.getElementById("voir-mains").onchange = e => {
+  reglages.voirMains = e.target.checked; dessiner();
+};
+document.getElementById("auto-ia").onchange = e => {
+  reglages.autoIa = e.target.checked;
+  dessiner();
+  if (reglages.autoIa && !P.fini && joueurCourant().ia) programmerIa();
+};
+document.getElementById("rejouer").onclick = () => {
+  document.getElementById("fin").hidden = true; nouvellePartie();
+};
+window.addEventListener("resize", () => { if (P) dessiner(); });
+
+document.documentElement.style.setProperty("--dos", "url('img/dos.jpg')");
+majPanneau();
+nouvellePartie();
+</script>

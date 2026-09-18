@@ -1,0 +1,122 @@
+{
+ "forme-carre-bleu": [
+  141,
+  155,
+  1124,
+  1086
+ ],
+ "forme-carre-jaune": [
+  95,
+  50,
+  1148,
+  1147
+ ],
+ "forme-carre-noir": [
+  112,
+  55,
+  1143,
+  1100
+ ],
+ "forme-carre-rouge": [
+  112,
+  55,
+  1143,
+  1100
+ ],
+ "forme-carre-vert": [
+  166,
+  181,
+  1092,
+  1046
+ ],
+ "forme-cercle-bleu": [
+  33,
+  40,
+  1194,
+  1162
+ ],
+ "forme-cercle-jaune": [
+  16,
+  23,
+  1188,
+  1146
+ ],
+ "forme-cercle-noir": [
+  33,
+  40,
+  1194,
+  1162
+ ],
+ "forme-cercle-rouge": [
+  33,
+  40,
+  1194,
+  1162
+ ],
+ "forme-cercle-vert": [
+  72,
+  74,
+  1187,
+  1131
+ ],
+ "forme-croix-bleu": [
+  117,
+  115,
+  1125,
+  1171
+ ],
+ "forme-croix-jaune": [
+  121,
+  82,
+  1138,
+  1159
+ ],
+ "forme-croix-noir": [
+  82,
+  60,
+  1105,
+  1192
+ ],
+ "forme-croix-rouge": [
+  82,
+  60,
+  1105,
+  1192
+ ],
+ "forme-croix-vert": [
+  111,
+  79,
+  1138,
+  1145
+ ],
+ "forme-triangle-bleu": [
+  8,
+  36,
+  1197,
+  1165
+ ],
+ "forme-triangle-jaune": [
+  10,
+  41,
+  1186,
+  1162
+ ],
+ "forme-triangle-noir": [
+  38,
+  54,
+  1205,
+  1156
+ ],
+ "forme-triangle-rouge": [
+  38,
+  54,
+  1205,
+  1156
+ ],
+ "forme-triangle-vert": [
+  33,
+  54,
+  1212,
+  1144
+ ]
+}
