@@ -1,0 +1,20 @@
+{
+  "version": "V5",
+  "status": "assets PNG à intégrer",
+  "description": "Bibliothèque V5 validée : formes peintes isolées (croix rouge, carré bleu, cercle vert, triangle jaune), chiffres noirs peints 1 à 4, fond des cartes blanc cassé uni, sans contour, sans traits décoratifs. Les images V4 ne doivent pas être remplacées.",
+  "assets": {
+    "formes": [
+      "formes/croix-rouge.png",
+      "formes/carre-bleu.png",
+      "formes/cercle-vert.png",
+      "formes/triangle-jaune.png"
+    ],
+    "chiffres": [
+      "chiffres/chiffre-1.png",
+      "chiffres/chiffre-2.png",
+      "chiffres/chiffre-3.png",
+      "chiffres/chiffre-4.png"
+    ]
+  },
+  "note": "Les chemins ci-dessus sont réservés. Les fichiers PNG binaires ne sont pas encore transférés dans GitHub. Ne pas activer V5 dans le jeu tant qu'ils ne sont pas présents."
+}
